@@ -533,9 +533,20 @@ app.post('/convert', async (req, res) => {
 // Inscription utilisateur avec PIN
 app.post('/register', (req, res) => {
   const { phone, pin } = req.body
-  if (!phone || !pin) return res.status(400).json({ error: 'Numéro et PIN requis' })
+  console.log('[REGISTER] Tentative inscription:', { phone, pin: pin ? '***' : 'missing' })
+  
+  if (!phone || !pin) {
+    console.log('[REGISTER] Rejet: champs manquants')
+    return res.status(400).json({ error: 'Numéro et PIN requis' })
+  }
+  
   db.run('INSERT INTO users (phone, pin) VALUES (?, ?)', [phone, pin], function (err) {
-    if (err) return res.status(400).json({ error: 'Ce numéro existe déjà !' })
+    if (err) {
+      console.error('[REGISTER] Erreur insertion:', err.message)
+      return res.status(400).json({ error: 'Ce numéro existe déjà !' })
+    }
+    
+    console.log('[REGISTER] Succès! userId:', this.lastID, 'phone:', phone)
     res.json({ message: 'Utilisateur inscrit', userId: this.lastID })
   })
 })
@@ -543,9 +554,25 @@ app.post('/register', (req, res) => {
 // Connexion utilisateur (vérifie le PIN)
 app.post('/login', (req, res) => {
   const { phone, pin } = req.body
-  if (!phone || !pin) return res.status(400).json({ error: 'Numéro et PIN requis' })
+  console.log('[LOGIN] Tentative connexion:', { phone, pin: pin ? '***' : 'missing' })
+
+  if (!phone || !pin) {
+    console.log('[LOGIN] Rejet: champs manquants')
+    return res.status(400).json({ error: 'Numéro et PIN requis' })
+  }
+
   db.get('SELECT * FROM users WHERE phone = ? AND pin = ?', [phone, pin], (err, user) => {
-    if (err || !user) return res.status(401).json({ error: 'Numéro ou PIN incorrect' })
+    if (err) {
+      console.error('[LOGIN] Erreur DB:', err)
+      return res.status(401).json({ error: 'Erreur base de données' })
+    }
+
+    if (!user) {
+      console.log('[LOGIN] Utilisateur non trouvé pour:', phone)
+      return res.status(401).json({ error: 'Numéro ou PIN incorrect' })
+    }
+
+    console.log('[LOGIN] Succès pour:', phone, 'userId:', user.id)
     res.json({ message: 'Connecté', userId: user.id })
   })
 })
@@ -553,6 +580,16 @@ app.post('/login', (req, res) => {
 // Healthcheck simple
 app.get('/health', (req, res) => {
   res.json({ ok: true })
+})
+
+// Diagnostic endpoint pour voir les utilisateurs (à des fins de debug)
+app.get('/debug/users', (req, res) => {
+  db.all('SELECT id, phone, balance, is_admin FROM users LIMIT 10', (err, users) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erreur DB', message: err.message })
+    }
+    res.json({ count: users.length, users })
+  })
 })
 
 // Route pour vérifier si un utilisateur est admin
