@@ -534,18 +534,18 @@ app.post('/convert', async (req, res) => {
 app.post('/register', (req, res) => {
   const { phone, pin } = req.body
   console.log('[REGISTER] Tentative inscription:', { phone, pin: pin ? '***' : 'missing' })
-  
+
   if (!phone || !pin) {
     console.log('[REGISTER] Rejet: champs manquants')
     return res.status(400).json({ error: 'Numéro et PIN requis' })
   }
-  
+
   db.run('INSERT INTO users (phone, pin) VALUES (?, ?)', [phone, pin], function (err) {
     if (err) {
       console.error('[REGISTER] Erreur insertion:', err.message)
       return res.status(400).json({ error: 'Ce numéro existe déjà !' })
     }
-    
+
     console.log('[REGISTER] Succès! userId:', this.lastID, 'phone:', phone)
     res.json({ message: 'Utilisateur inscrit', userId: this.lastID })
   })
@@ -574,6 +574,65 @@ app.post('/login', (req, res) => {
 
     console.log('[LOGIN] Succès pour:', phone, 'userId:', user.id)
     res.json({ message: 'Connecté', userId: user.id })
+  })
+})
+
+// Authentification intelligente : inscription automatique OU connexion
+app.post('/auth', (req, res) => {
+  const { phone, pin } = req.body
+  console.log('[AUTH] Tentative auth:', { phone, pin: pin ? '***' : 'missing' })
+  
+  if (!phone || !pin) {
+    console.log('[AUTH] Rejet: champs manquants')
+    return res.status(400).json({ error: 'Numéro et PIN requis' })
+  }
+
+  // D'abord, essayer de se connecter
+  db.get('SELECT * FROM users WHERE phone = ? AND pin = ?', [phone, pin], (err, user) => {
+    if (err) {
+      console.error('[AUTH] Erreur DB:', err)
+      return res.status(500).json({ error: 'Erreur base de données' })
+    }
+
+    // Si l'utilisateur existe avec ce PIN : connexion
+    if (user) {
+      console.log('[AUTH] ✅ Connexion existante:', phone, 'userId:', user.id)
+      return res.json({ 
+        message: 'Connecté', 
+        userId: user.id, 
+        isNewUser: false 
+      })
+    }
+
+    // Sinon, vérifier si le phone existe déjà avec un autre PIN
+    db.get('SELECT * FROM users WHERE phone = ?', [phone], (err2, existingUser) => {
+      if (err2) {
+        console.error('[AUTH] Erreur vérification phone:', err2)
+        return res.status(500).json({ error: 'Erreur base de données' })
+      }
+
+      // Si le phone existe avec un PIN différent : erreur
+      if (existingUser) {
+        console.log('[AUTH] ❌ Phone existe avec un autre PIN:', phone)
+        return res.status(401).json({ error: 'PIN incorrect pour ce numéro' })
+      }
+
+      // Sinon : inscription automatique
+      console.log('[AUTH] 🆕 Nouvelle inscription auto:', phone)
+      db.run('INSERT INTO users (phone, pin) VALUES (?, ?)', [phone, pin], function (err3) {
+        if (err3) {
+          console.error('[AUTH] Erreur inscription:', err3.message)
+          return res.status(500).json({ error: 'Erreur lors de l\'inscription' })
+        }
+
+        console.log('[AUTH] ✅ Inscription réussie! userId:', this.lastID)
+        res.json({ 
+          message: 'Compte créé et connecté', 
+          userId: this.lastID,
+          isNewUser: true
+        })
+      })
+    })
   })
 })
 
